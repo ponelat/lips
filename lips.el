@@ -3,14 +3,27 @@
 ;;;
 ;; Lips is a simple lisp that can evaluate +,-,*,/ only, but can do so with nested expressions (or s-expressions)
 
-(setq lips/private/functions
-  '(("add" . +)
+(setq lips/functions
+  `(
+     ("+" . +)
+     ("add" . +)
+     ("-" . -)
      ("sub" . -)
+     ("/" . /)
      ("div" . /)
-     ("mul" . *)))
+     ("fn" .
+       (lambda (&rest args)
+         ((lambda (apply )))))
+     ("def" .
+       (lambda (&rest args)
+         (message (format "-> %s" args))))
+     ("*" . *)
+     ("mul" . *)
+     ))
 
-(defun lips/private/get-fn (fn-str)
-  (cdr (assoc fn-str lips/private/functions)))
+(defun lips/get-fn (fn-str)
+  (cdr (assoc fn-str lips/functions)))
+
 
 ;; string => tokens => sexp
 
@@ -21,12 +34,18 @@
 ;; OPEN = (
 ;; CLOSE = )
 
-(setq lips/private/tokens
+(setq lips/tokens
   '((:whitespace .
       (lambda (char token rest)
         (eq char ? )))
      (:symbol .
-       (lambda (char token rest) (and (>= char ?a) (<= char ?z))))
+       (lambda (char token rest)
+         (or
+           (= char ?+)
+           (= char ?-)
+           (= char ?*)
+           (= char ?/)
+           (and (>= char ?a) (<= char ?z)))))
      (:number .
        (lambda (char token rest) (and (>= char ?0) (<= char ?9))))
      (:open .
@@ -77,55 +96,51 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
 
 (defun lips/tokenize (str)
   "Returns a list of tokens (symbols) of "
-  (cdr (lips/gobble-tokens lips/private/tokens (string-to-list str) nil)))
+  (cdr (lips/gobble-tokens lips/tokens (string-to-list str) nil)))
 
-(defun lips/gobble-sexp (tokens sexp-body)
-  (let ((token (car tokens))
-         (tokens-rest (cdr tokens)))
-    (pcase token
-      ;; Nested
-      (`(:open . ,val)
-        (let ((res (lips/gobble-sexp tokens-rest nil)))
-          (let ((tokens-rest (car res))
-                 (sexp (cdr res)))
-            (lips/gobble-sexp tokens-rest (cons sexp sexp-body)))))
-      (`(:close . ,val)     (cons tokens-rest (cons :sexp (reverse sexp-body))))
-      (`(:symbol . ,val)     (lips/gobble-sexp tokens-rest (cons token sexp-body)))
-      (`(:number . ,val)     (lips/gobble-sexp tokens-rest (cons token sexp-body)))
-      (`(:whitespace . ,val) (lips/gobble-sexp tokens-rest sexp-body)))))
-
-
-(defun lips/gobble-sexps (tokens sexps)
-  (let ((token (car tokens))
-         (tokens-rest (cdr tokens)))
-    (pcase token
-      (`(:open . ,val)
-        (let ((res (lips/gobble-sexp tokens-rest nil)))
-          (let ((tokens-rest (car res))
-                 (sexp (cdr res)))
-            (lips/gobble-sexps tokens-rest (cons sexp sexps)))))
-      (`(:whitespace . ,val) (lips/gobble-sexps tokens-rest sexps))
-      (_  (cons tokens (reverse sexps))))))
+(defun lips/gobble-forms (tokens sexp-body)
+  (if tokens
+    (let ((token (car tokens))
+           (tokens-rest (cdr tokens)))
+      (pcase token
+        ;; Nested
+        (`(:open . ,val)
+          (let ((res (lips/gobble-forms tokens-rest nil)))
+            (let ((tokens-rest (car res))
+                   (sexp (cdr res)))
+              (lips/gobble-forms tokens-rest (cons sexp sexp-body)))))
+        (`(:close . ,val)     (cons tokens-rest (cons :sexp (reverse sexp-body))))
+        (`(:symbol . ,val)     (lips/gobble-forms tokens-rest (cons token sexp-body)))
+        (`(:number . ,val)     (lips/gobble-forms tokens-rest (cons token sexp-body)))
+        (`(:whitespace . ,val) (lips/gobble-forms tokens-rest sexp-body))))
+    sexp-body))
 
 (defun lips/parse (str)
-  (cdr (lips/gobble-sexps
-         (lips/tokenize str)
-         nil)))
+  (lips/gobble-forms (lips/tokenize str) nil))
 
-(defun lips/eval-exp (ast)
+(defun lips/eval-exp (namespace ast)
   (pcase ast
-    (`(:symbol . ,val) (lips/private/get-fn val))
+    (`(:symbol . ,val) (lips/get-fn val))
     (`(:number . ,val) (string-to-number val))
     (`(:sexp . (,fn . ,exps))
-      (format "->%s" exps)
-      (apply
-        (lips/eval-exp fn)
-        (mapcar #'lips/eval-exp exps)))))
+      (pcase fn
+        (`(:symbol . "def")
+          "def!")
+        (`(:symbol . "fn")
+          "fn!")
+        (_ (apply
+           (lips/eval-exp namespace fn)
+             (mapcar (lambda (exp) (lips/eval-exp namespace exp)) exps)))))))
+
 
 (defun lips-eval (str)
   (let ((ast (lips/parse str)))
-    (let ((results (mapcar 'lips/eval-exp ast)))
+    (let ((results (mapcar (lambda (exp) (lips/eval-exp nil exp)) ast)))
       (car (last results)))))
+
+;; (lips-eval "((fn (a b) (+ a b)) 6 7)")
+;; (lips-eval "1")
+;; (lips-eval "(+ 1 (- 2 1))")
 
 (provide 'lips)
 ;;; lips.el ends here
