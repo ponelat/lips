@@ -3,27 +3,31 @@
 ;;;
 ;; Lips is a simple lisp that can evaluate +,-,*,/ only, but can do so with nested expressions (or s-expressions)
 
-(setq lips/functions
+(setq lips/core-symbols
   `(
+     ("def" .
+       (lambda (&rest args)
+         (message (format "-> %s" args))))
+     ("fn" .
+       (lambda (&rest args)
+         "fn!"))
      ("+" . +)
      ("add" . +)
      ("-" . -)
      ("sub" . -)
      ("/" . /)
      ("div" . /)
-     ("fn" .
-       (lambda (&rest args)
-         ((lambda (apply )))))
-     ("def" .
-       (lambda (&rest args)
-         (message (format "-> %s" args))))
      ("*" . *)
-     ("mul" . *)
-     ))
+     ("mul" . *)))
 
-(defun lips/get-fn (fn-str)
-  (cdr (assoc fn-str lips/functions)))
-
+(defun lips/find-first-assoc (alists key)
+  "Takes a list of ALISTS and find the first KEY with a value."
+  (if alists
+    (let ((alist (car alists ))
+           (alist-rest (cdr alists)))
+      (let ((val (cdr (assoc key alist))))
+        (if val val
+          (lips/find-first-assoc alist-rest key))))))
 
 ;; string => tokens => sexp
 
@@ -118,9 +122,9 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
 (defun lips/parse (str)
   (lips/gobble-forms (lips/tokenize str) nil))
 
-(defun lips/eval-exp (namespace ast)
+(defun lips/eval-exp (scopes ast)
   (pcase ast
-    (`(:symbol . ,val) (lips/get-fn val))
+    (`(:symbol . ,key) (lips/find-first-assoc scopes key))
     (`(:number . ,val) (string-to-number val))
     (`(:sexp . (,fn . ,exps))
       (pcase fn
@@ -129,17 +133,18 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
         (`(:symbol . "fn")
           "fn!")
         (_ (apply
-           (lips/eval-exp namespace fn)
-             (mapcar (lambda (exp) (lips/eval-exp namespace exp)) exps)))))))
-
+           (lips/eval-exp scopes fn)
+             (mapcar (lambda (exp) (lips/eval-exp scopes exp)) exps)))))))
 
 (defun lips-eval (str)
-  (let ((ast (lips/parse str)))
-    (let ((results (mapcar (lambda (exp) (lips/eval-exp nil exp)) ast)))
+  (let ((ast (lips/parse str))
+         (scopes (list lips/core-symbols)))
+    (let ((results (mapcar (lambda (exp) (lips/eval-exp scopes exp)) ast)))
       (car (last results)))))
 
 ;; (lips-eval "((fn (a b) (+ a b)) 6 7)")
 ;; (lips-eval "1")
+;; (lips-eval "(def a 1) (+ 1 a)")
 ;; (lips-eval "(+ 1 (- 2 1))")
 
 (provide 'lips)
