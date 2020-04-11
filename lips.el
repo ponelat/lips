@@ -1,35 +1,36 @@
- ;; lips.el --- A simple lisp
+;;; -*- lexical-binding: t -*-
+;; lips.el --- A simple lisp
 ;;; Commentary: A simple lisp
 ;;;
 ;; Lips is a simple lisp that can evaluate +,-,*,/ only, but can do so with nested expressions (or s-expressions)
 
+
+
+(defun lips/make-hash (&optional key-values)
+  "Makes a `hash-table' with the test = `equal' suitable for string keys.
+The BODY is a list of key value sequences."
+  (let ((hash (make-hash-table :test 'equal)))
+    (-each (-partition 2 key-values)
+      (lambda (pair) (puthash (nth 0 pair) (nth 1 pair) hash)))
+    hash))
+
 (setq lips/core-symbols
-  `(
-     ("def" .
-       (lambda (&rest args)
-         (message (format "-> %s" args))))
-     ("fn" .
-       (lambda (&rest args)
-         "fn!"))
-     ("+" . +)
-     ("add" . +)
-     ("-" . -)
-     ("sub" . -)
-     ("/" . /)
-     ("div" . /)
-     ("*" . *)
-     ("mul" . *)))
+  (lips/make-hash
+    '("+" +
+       "-" -
+       "/" /
+       "*" *)))
 
-(defun lips/find-first-assoc (alists key)
-  "Takes a list of ALISTS and find the first KEY with a value."
-  (if alists
-    (let ((alist (car alists ))
-           (alist-rest (cdr alists)))
-      (let ((val (cdr (assoc key alist))))
+(defun lips/maps-find-first (maps key)
+  "Takes a list of MAPS and find the first KEY with a value, return the value."
+  (if maps
+    (let ((head (car maps))
+           (rest (cdr maps)))
+      (let ((val (gethash key head)))
         (if val val
-          (lips/find-first-assoc alist-rest key))))))
+          (lips/maps-find-first rest key))))))
 
-;; string => tokens => sexp
+;; string => tokens => form
 
 ;; PROGRAM = LSWP 1*SEXP LSWP
 ;; SEXP = OPEN EXP *(LSWP EXP) CLOSE
@@ -41,7 +42,10 @@
 (setq lips/tokens
   '((:whitespace .
       (lambda (char token rest)
-        (eq char ? )))
+        (or
+          (eq char ? )
+          (eq char 10)
+          (eq char 13))))
      (:symbol .
        (lambda (char token rest)
          (or
@@ -102,7 +106,7 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
   "Returns a list of tokens (symbols) of "
   (cdr (lips/gobble-tokens lips/tokens (string-to-list str) nil)))
 
-(defun lips/gobble-forms (tokens sexp-body)
+(defun lips/gobble-forms (tokens body)
   (if tokens
     (let ((token (car tokens))
            (tokens-rest (cdr tokens)))
@@ -111,41 +115,65 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
         (`(:open . ,val)
           (let ((res (lips/gobble-forms tokens-rest nil)))
             (let ((tokens-rest (car res))
-                   (sexp (cdr res)))
-              (lips/gobble-forms tokens-rest (cons sexp sexp-body)))))
-        (`(:close . ,val)     (cons tokens-rest (cons :sexp (reverse sexp-body))))
-        (`(:symbol . ,val)     (lips/gobble-forms tokens-rest (cons token sexp-body)))
-        (`(:number . ,val)     (lips/gobble-forms tokens-rest (cons token sexp-body)))
-        (`(:whitespace . ,val) (lips/gobble-forms tokens-rest sexp-body))))
-    sexp-body))
+                   (form (cdr res)))
+              (lips/gobble-forms tokens-rest (cons form body)))))
+        (`(:close . ,val)     (cons tokens-rest (cons :list (reverse body))))
+        (`(:symbol . ,val)     (lips/gobble-forms tokens-rest (cons token body)))
+        (`(:number . ,val)     (lips/gobble-forms tokens-rest (cons token body)))
+        (`(:whitespace . ,val) (lips/gobble-forms tokens-rest body))))
+    body))
 
 (defun lips/parse (str)
-  (lips/gobble-forms (lips/tokenize str) nil))
+  (reverse (lips/gobble-forms (lips/tokenize str) nil)))
 
 (defun lips/eval-exp (scopes ast)
   (pcase ast
-    (`(:symbol . ,key) (lips/find-first-assoc scopes key))
+    (`(:symbol . ,key) (lips/maps-find-first scopes key))
     (`(:number . ,val) (string-to-number val))
-    (`(:sexp . (,fn . ,exps))
-      (pcase fn
+    (`(:list . (,f . ,exps))
+      (pcase f
         (`(:symbol . "def")
-          "def!")
+          (let ((key (cdr (nth 0 exps)))
+                 (val (lips/eval-exp scopes (nth 1 exps))))
+            (puthash key val (car scopes))
+            val))
         (`(:symbol . "fn")
-          "fn!")
+          (let ((params (-clone (cdr (car exps))))
+                 (body (-clone (cdr exps))))
+            (lambda (&rest vargs)
+              (let ((scope (lips/make-hash)))
+                (-each-indexed params
+                  (lambda (i arg) (puthash (cdr arg) (nth i vargs) scope)))
+                (lips/eval-exp (cons scope scopes) (car body)))
+              )))
+        (`(:symbol . "list")
+          (mapcar (lambda (exp) (lips/eval-exp scopes exp)) exps))
         (_ (apply
-           (lips/eval-exp scopes fn)
-             (mapcar (lambda (exp) (lips/eval-exp scopes exp)) exps)))))))
+            (lips/eval-exp scopes f)
+            (mapcar (lambda (exp) (lips/eval-exp scopes exp)) exps)))))
+        ;; Else return the thing itself
+        (_ ast)))
 
-(defun lips-eval (str)
+
+(defun lips-eval (str &optional user-scope)
   (let ((ast (lips/parse str))
-         (scopes (list lips/core-symbols)))
+         (scopes (list
+                   (lips/make-hash user-scope)
+                   lips/core-symbols)))
     (let ((results (mapcar (lambda (exp) (lips/eval-exp scopes exp)) ast)))
       (car (last results)))))
 
-;; (lips-eval "((fn (a b) (+ a b)) 6 7)")
-;; (lips-eval "1")
-;; (lips-eval "(def a 1) (+ 1 a)")
-;; (lips-eval "(+ 1 (- 2 1))")
+(cond
+  ;; Function
+  ((not (eq (lips-eval "((fn (a b) (+ a b)) 1 2)") 3)) "Failed to parse function")
+  ;; Def
+  ((not (eq (lips-eval "(def a 4) (+ a 2)") 6)) "Failed to parse def")
+  ;; List
+  ((not (equal (lips-eval "(list 1 2 3)") '(1 2 3))) "Failed to parse list")
+  ;; Nested
+  ((not (equal (lips-eval "(+ 10 (* 10 10))") 110)) "Failed to parse nested forms")
+  ;; User provided scope
+  ((not (equal (lips-eval "(+ 10 (* 10 10))" '("*" +)) 30)) "Failed to parse user-provided scope"))
 
 (provide 'lips)
 ;;; lips.el ends here
