@@ -18,6 +18,7 @@ The BODY is a list of key value sequences."
   (lips/make-hash
     '("+" +
        "-" -
+       "nil" nil
        "/" /
        "*" *)))
 
@@ -137,6 +138,14 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
                  (val (lips/eval-exp scopes (nth 1 exps))))
             (puthash key val (car scopes))
             val))
+        (`(:symbol . "if")
+          (let ((pred (nth 0 exps))
+                 (true-clause (nth 1 exps))
+                 (false-clause (nth 2 exps)))
+            (if
+              (lips/eval-exp scopes pred)
+              (lips/eval-exp scopes true-clause)
+              (lips/eval-exp scopes false-clause))))
         (`(:symbol . "fn")
           (let ((params (-clone (cdr (car exps))))
                  (body (-clone (cdr exps))))
@@ -144,15 +153,14 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
               (let ((scope (lips/make-hash)))
                 (-each-indexed params
                   (lambda (i arg) (puthash (cdr arg) (nth i vargs) scope)))
-                (lips/eval-exp (cons scope scopes) (car body)))
-              )))
+                (lips/eval-exp (cons scope scopes) (car body))))))
         (`(:symbol . "list")
           (mapcar (lambda (exp) (lips/eval-exp scopes exp)) exps))
         (_ (apply
             (lips/eval-exp scopes f)
-            (mapcar (lambda (exp) (lips/eval-exp scopes exp)) exps)))))
+             (mapcar (lambda (exp) (lips/eval-exp scopes exp)) exps)))))
         ;; Else return the thing itself
-        (_ ast)))
+    (_ ast)))
 
 
 (defun lips-eval (str &optional user-scope)
@@ -163,17 +171,29 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
     (let ((results (mapcar (lambda (exp) (lips/eval-exp scopes exp)) ast)))
       (car (last results)))))
 
-(cond
+(defun lips/test (str expected &optional scope)
+  (let ((actual (lips-eval str scope)))
+    (if (equal actual expected) nil
+      (format "Failed on \"%s\": actual => %s (exptected %s) %s"
+        str actual expected
+        (if scope (format " - with scope %s" scope) "")))))
+(or
+  ;; If - true
+  (lips/test "(if 1 (def a 1) (def b 1)) a" 1)
+  ;; If - desn't eval false
+  (lips/test "(if nil (def a 1)) a" nil)
+  ;; If - false
+  (lips/test "(if nil 1 2)" 2)
   ;; Function
-  ((not (eq (lips-eval "((fn (a b) (+ a b)) 1 2)") 3)) "Failed to parse function")
+  (lips/test "((fn (a b) (+ a b)) 1 2)" 3)
   ;; Def
-  ((not (eq (lips-eval "(def a 4) (+ a 2)") 6)) "Failed to parse def")
+  (lips/test "(def a 4) (+ a 2)" 6)
   ;; List
-  ((not (equal (lips-eval "(list 1 2 3)") '(1 2 3))) "Failed to parse list")
+  (lips/test "(list 1 2 3)" '(1 2 3))
   ;; Nested
-  ((not (equal (lips-eval "(+ 10 (* 10 10))") 110)) "Failed to parse nested forms")
+  (lips/test "(+ 10 (* 10 10))" 110)
   ;; User provided scope
-  ((not (equal (lips-eval "(+ 10 (* 10 10))" '("*" +)) 30)) "Failed to parse user-provided scope"))
+  (lips/test "(+ 10 (* 10 10))" 30 '("*" +)))
 
 (provide 'lips)
 ;;; lips.el ends here
