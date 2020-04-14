@@ -19,6 +19,8 @@ The BODY is a list of key value sequences."
     '("+" +
        "-" -
        "nil" nil
+       "=" equal
+       "true" t
        "/" /
        "*" *)))
 
@@ -54,6 +56,7 @@ The BODY is a list of key value sequences."
            (= char ?-)
            (= char ?*)
            (= char ?/)
+           (= char ?=)
            (and (>= char ?a) (<= char ?z)))))
      (:number .
        (lambda (char token rest) (and (>= char ?0) (<= char ?9))))
@@ -138,6 +141,15 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
                  (val (lips/eval-exp scopes (nth 1 exps))))
             (puthash key val (car scopes))
             val))
+        (`(:symbol . "cond")
+          (lips/eval-exp
+            scopes
+            (car
+              (cdr
+                (-find
+                  (lambda (pair)
+                    (lips/eval-exp scopes (car pair)))
+                  (-partition 2 exps))))))
         (`(:symbol . "if")
           (let ((pred (nth 0 exps))
                  (true-clause (nth 1 exps))
@@ -178,6 +190,14 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
         str actual expected
         (if scope (format " - with scope %s" scope) "")))))
 (or
+  ;; cond
+  (lips/test "(cond (= 1 0) 1 (= 1 1) 2)" 2)
+  ;; equals false
+  (lips/test "(= 1 0)" nil)
+  ;; equals (and true)
+  (lips/test "(= 1 1)" t)
+  ;; If - true
+  (lips/test "(if 1 (def a 1) (def b 1)) a" 1)
   ;; If - true
   (lips/test "(if 1 (def a 1) (def b 1)) a" 1)
   ;; If - desn't eval false
