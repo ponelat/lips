@@ -136,6 +136,14 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
       res
       (if res (lips/and scopes (cdr exps))))))
 
+(defun lips/or (scopes exps)
+  (if exps
+    (let ((res (lips/eval-exp scopes (car exps))))
+      (if (= 1 (length exps))
+        res
+        (if res res (lips/and scopes (cdr exps)))))))
+
+
 (defun lips/eval-exp (scopes ast)
   (pcase ast
     (`(:symbol . ,key) (lips/maps-find-first scopes key))
@@ -149,6 +157,8 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
             val))
         (`(:symbol . "and")
           (lips/and scopes exps))
+        (`(:symbol . "or")
+          (lips/or scopes exps))
         (`(:symbol . "cond")
           (lips/eval-exp scopes
             (car
@@ -197,6 +207,11 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
         str actual expected
         (if scope (format " - with scope %s" scope) "")))))
 (or
+  ;; or
+  (lips/test "(or)" nil)
+  (lips/test "(or 1 2 3)" 1)
+  (lips/test "(or 1 nil 3)" 1)
+  (lips/test "(or nil nil)" nil)
   ;; and
   (lips/test "(and 1 2 3)" 3)
   (lips/test "(and 1 nil 3)" nil)
