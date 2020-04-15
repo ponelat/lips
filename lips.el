@@ -19,6 +19,7 @@ The BODY is a list of key value sequences."
     '("+" +
        "-" -
        "nil" nil
+       "not" not
        "=" equal
        "true" t
        "/" /
@@ -207,6 +208,9 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
         str actual expected
         (if scope (format " - with scope %s" scope) "")))))
 (or
+  ;; not
+  (lips/test "(not 1)" nil)
+  (lips/test "(not nil)" t)
   ;; or
   (lips/test "(or)" nil)
   (lips/test "(or 1 2 3)" 1)
