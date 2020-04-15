@@ -130,6 +130,12 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
 (defun lips/parse (str)
   (reverse (lips/gobble-forms (lips/tokenize str) nil)))
 
+(defun lips/and (scopes exps)
+  (let ((res (lips/eval-exp scopes (car exps))))
+    (if (= 1 (length exps))
+      res
+      (if res (lips/and scopes (cdr exps))))))
+
 (defun lips/eval-exp (scopes ast)
   (pcase ast
     (`(:symbol . ,key) (lips/maps-find-first scopes key))
@@ -141,9 +147,10 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
                  (val (lips/eval-exp scopes (nth 1 exps))))
             (puthash key val (car scopes))
             val))
+        (`(:symbol . "and")
+          (lips/and scopes exps))
         (`(:symbol . "cond")
-          (lips/eval-exp
-            scopes
+          (lips/eval-exp scopes
             (car
               (cdr
                 (-find
@@ -190,6 +197,9 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
         str actual expected
         (if scope (format " - with scope %s" scope) "")))))
 (or
+  ;; and
+  (lips/test "(and 1 2 3)" 3)
+  (lips/test "(and 1 nil 3)" nil)
   ;; cond
   (lips/test "(cond (= 1 0) 1 (= 1 1) 2)" 2)
   ;; equals false
