@@ -244,5 +244,20 @@ Returns a cons cell of (remaining-chars . token) or (CHARS . nil)."
   ;; User provided scope
   (lips/test "(+ 10 (* 10 10))" 30 '("*" +)))
 
+;; 1 2 3 4 5 6 7  8
+;; 1 1 2 3 5 8 13 21
+(lips-eval "
+(def fib
+  (fn (x)
+    (cond
+      (= x 1) 1
+      (= x 2) 1
+      true (+
+              (fib (- x 1))
+              (fib (- x 2))))))
+
+(fib 8)
+")
+
 (provide 'lips)
 ;;; lips.el ends here
